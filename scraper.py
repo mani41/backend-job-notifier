@@ -15,15 +15,22 @@ TRACKED KEYWORDS:
 - Positions: "frontend", "front-end", "front end", "ui", "web developer"
 - Technologies: "angular", "react", "vue", "typescript", "javascript"
 
+STATE MANAGEMENT:
+- Tracks processed job URLs inside 'seen_jobs.json' to prevent duplicate 
+  hourly Telegram notifications.
+
 EXECUTION:
 - Scheduled hourly via GitHub Actions workflow (.github/workflows/job_alert.yml)
 - Environment Variables required: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 ================================================================================
 """
 
+import json
 import os
 import requests
 import feedparser
+
+SEEN_JOBS_FILE = "seen_jobs.json"
 
 # Keywords to match relevant Frontend & Web Development roles
 KEYWORDS = [
@@ -38,6 +45,27 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 def log(msg):
     """Prints output immediately to stdout for real-time viewing in GitHub Actions logs."""
     print(msg, flush=True)
+
+
+def load_seen_jobs():
+    """Loads previously notified job URLs/IDs from JSON file."""
+    if os.path.exists(SEEN_JOBS_FILE):
+        try:
+            with open(SEEN_JOBS_FILE, "r") as f:
+                return set(json.load(f))
+        except Exception as e:
+            log(f"Error loading seen jobs file: {e}")
+    return set()
+
+
+def save_seen_jobs(seen_jobs):
+    """Saves updated set of notified job URLs/IDs back to JSON file."""
+    try:
+        with open(SEEN_JOBS_FILE, "w") as f:
+            json.dump(list(seen_jobs), f, indent=2)
+        log("Updated seen_jobs.json successfully.")
+    except Exception as e:
+        log(f"Error saving seen jobs file: {e}")
 
 
 def send_telegram_alert(job_title, company, job_url, source):
@@ -79,10 +107,12 @@ def fetch_himalayas():
             jobs = res.json().get("jobs", [])
             log(f"Himalayas returned {len(jobs)} raw job results.")
             for job in jobs[:10]:
+                job_url = job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}"
                 matched.append({
+                    "id": job_url,
                     "title": job.get("title"),
                     "company": job.get("companyName"),
-                    "url": job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}",
+                    "url": job_url,
                     "source": "Himalayas"
                 })
     except Exception as e:
@@ -107,6 +137,7 @@ def fetch_remotive():
                 title = job.get("title", "").lower()
                 if any(kw in title for kw in KEYWORDS):
                     matched.append({
+                        "id": job.get("url"),
                         "title": job.get("title"),
                         "company": job.get("company_name"),
                         "url": job.get("url"),
@@ -132,6 +163,7 @@ def fetch_weworkremotely():
             title = entry.title.lower()
             if any(kw in title for kw in KEYWORDS):
                 matched.append({
+                    "id": entry.link,
                     "title": entry.title,
                     "company": getattr(entry, "author", "WeWorkRemotely"),
                     "url": entry.link,
@@ -159,6 +191,7 @@ def fetch_arbeitnow():
                 title = job.get("title", "").lower()
                 if any(kw in title for kw in KEYWORDS):
                     matched.append({
+                        "id": job.get("url"),
                         "title": job.get("title"),
                         "company": job.get("company_name"),
                         "url": job.get("url"),
@@ -186,6 +219,7 @@ def fetch_jobicy():
                 title = job.get("jobTitle", "").lower()
                 if any(kw in title for kw in KEYWORDS):
                     matched.append({
+                        "id": job.get("url"),
                         "title": job.get("jobTitle"),
                         "company": job.get("companyName"),
                         "url": job.get("url"),
@@ -210,6 +244,10 @@ def fetch_and_notify():
 
     log("✅ GitHub Secrets loaded successfully.")
 
+    # Load seen job history to prevent duplicate notifications
+    seen_jobs = load_seen_jobs()
+    log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
+
     # Execute and aggregate all portal checks
     all_jobs = []
     all_jobs.extend(fetch_himalayas())
@@ -218,17 +256,22 @@ def fetch_and_notify():
     all_jobs.extend(fetch_arbeitnow())
     all_jobs.extend(fetch_jobicy())
 
-    log(f"\n--- Total Matching Frontend Jobs Found: {len(all_jobs)} ---")
+    # Filter out jobs that have already been sent in previous runs
+    new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
+    log(f"\n--- Total Matches: {len(all_jobs)} | New Unseen Matches: {len(new_jobs)} ---")
 
-    if not all_jobs:
-        log("No new jobs matched the keyword criteria in this run.")
+    if not new_jobs:
+        log("No new unseen jobs found in this run.")
         return
 
-    # Dispatch alerts for up to the first 5 matches per run
-    for job in all_jobs[:5]:
-        log(f"Sending alert for: '{job['title']}' from [{job['source']}]")
+    # Dispatch alerts for new jobs only (up to 5 per run)
+    for job in new_jobs[:5]:
+        log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
+        seen_jobs.add(job["id"])
 
+    # Save updated list of processed job IDs
+    save_seen_jobs(seen_jobs)
     log("=== JOB FETCH COMPLETE ===")
 
 
