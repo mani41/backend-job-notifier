@@ -2,7 +2,7 @@
 ================================================================================
 SCRIPT: Frontend Job Alert Bot (scraper.py)
 PURPOSE: Aggregates real-time Frontend & Web Development job postings across 
-         5 remote job portals and dispatches instant alerts via Telegram.
+         6 remote job portals and dispatches instant alerts via Telegram.
 
 JOB PORTALS CHECKED:
 1. Himalayas (https://himalayas.app) - Search API endpoint for frontend roles.
@@ -10,6 +10,7 @@ JOB PORTALS CHECKED:
 3. We Work Remotely (https://weworkremotely.com) - Front-End RSS feed.
 4. Arbeitnow (https://www.arbeitnow.com) - European & Global remote job API.
 5. Jobicy (https://jobicy.com) - Engineering remote job feed API.
+6. Hacker News (https://news.ycombinator.com) - Real-time official Firebase API.
 
 TRACKED KEYWORDS:
 - Positions: "frontend", "front-end", "front end", "ui", "web developer"
@@ -231,6 +232,37 @@ def fetch_jobicy():
 
 
 # ==============================================================================
+# PORTAL 6: Hacker News (https://news.ycombinator.com)
+# Focus: High-paying startup roles from Y Combinator & tech community feeds.
+# ==============================================================================
+def fetch_hacker_news():
+    log("Checking Portal: Hacker News (Firebase API)...")
+    matched = []
+    try:
+        res = requests.get("https://hacker-news.firebaseio.com/v0/jobstories.json", timeout=10)
+        if res.status_code == 200:
+            story_ids = res.json()[:15]
+            log(f"Hacker News returned {len(story_ids)} active job story IDs.")
+            for s_id in story_ids:
+                item_res = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{s_id}.json", timeout=10)
+                if item_res.status_code == 200:
+                    item = item_res.json()
+                    title = item.get("title", "").lower()
+                    if any(kw in title for kw in KEYWORDS):
+                        job_url = item.get("url") or f"https://news.ycombinator.com/item?id={item.get('id')}"
+                        matched.append({
+                            "id": str(item.get("id")),
+                            "title": item.get("title"),
+                            "company": "Hacker News Startup",
+                            "url": job_url,
+                            "source": "Hacker News"
+                        })
+    except Exception as e:
+        log(f"Hacker News fetch error: {e}")
+    return matched
+
+
+# ==============================================================================
 # MAIN EXECUTOR & AGGREGATOR
 # ==============================================================================
 def fetch_and_notify():
@@ -248,13 +280,14 @@ def fetch_and_notify():
     seen_jobs = load_seen_jobs()
     log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
 
-    # Execute and aggregate all portal checks
+    # Execute and aggregate all 6 portal checks
     all_jobs = []
     all_jobs.extend(fetch_himalayas())
     all_jobs.extend(fetch_remotive())
     all_jobs.extend(fetch_weworkremotely())
     all_jobs.extend(fetch_arbeitnow())
     all_jobs.extend(fetch_jobicy())
+    all_jobs.extend(fetch_hacker_news())
 
     # Filter out jobs that have already been sent in previous runs
     new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
