@@ -1,6 +1,6 @@
 import os
+import sys
 import requests
-import feedparser
 
 KEYWORDS = [
     "frontend", "front-end", "front end", "ui",
@@ -9,6 +9,11 @@ KEYWORDS = [
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+
+def log(msg):
+    """Force print output immediately to GitHub Actions stdout"""
+    print(msg, flush=True)
 
 
 def send_telegram_alert(job_title, company, job_url, source):
@@ -27,21 +32,45 @@ def send_telegram_alert(job_title, company, job_url, source):
     }
     try:
         res = requests.post(telegram_url, json=payload, timeout=10)
-        print(f"[{source}] Telegram delivery status: {res.status_code}")
+        log(f"[{source}] Telegram delivery response: {res.status_code}")
         if res.status_code != 200:
-            print(f"Telegram error details: {res.text}")
+            log(f"Telegram API Error Details: {res.text}")
     except Exception as e:
-        print(f"Failed to send alert for {job_title}: {e}")
+        log(f"Failed sending alert for {job_title}: {e}")
 
 
-def fetch_remotive():
-    print("Checking Remotive...")
-    url = "https://remotive.com/api/remote-jobs?category=software-dev&limit=50"
+def fetch_himalayas_search():
+    log("Checking Himalayas Search Endpoint...")
+    url = "https://himalayas.app/jobs/api/search?q=frontend"
     matched = []
     try:
         res = requests.get(url, timeout=10)
+        log(f"Himalayas API response status: {res.status_code}")
         if res.status_code == 200:
             jobs = res.json().get("jobs", [])
+            log(f"Himalayas returned {len(jobs)} raw frontend jobs.")
+            for job in jobs[:10]:
+                matched.append({
+                    "title": job.get("title"),
+                    "company": job.get("companyName"),
+                    "url": job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}",
+                    "source": "Himalayas"
+                })
+    except Exception as e:
+        log(f"Himalayas fetch error: {e}")
+    return matched
+
+
+def fetch_remotive():
+    log("Checking Remotive API...")
+    url = "https://remotive.com/api/remote-jobs?category=software-dev&limit=30"
+    matched = []
+    try:
+        res = requests.get(url, timeout=10)
+        log(f"Remotive API response status: {res.status_code}")
+        if res.status_code == 200:
+            jobs = res.json().get("jobs", [])
+            log(f"Remotive returned {len(jobs)} software development jobs.")
             for job in jobs:
                 title = job.get("title", "").lower()
                 if any(kw in title for kw in KEYWORDS):
@@ -52,54 +81,38 @@ def fetch_remotive():
                         "source": "Remotive"
                     })
     except Exception as e:
-        print(f"Remotive Error: {e}")
-    return matched
-
-
-def fetch_himalayas():
-    print("Checking Himalayas...")
-    url = "https://himalayas.app/jobs/api?limit=50"
-    matched = []
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            jobs = res.json().get("jobs", [])
-            for job in jobs:
-                title = job.get("title", "").lower()
-                if any(kw in title for kw in KEYWORDS):
-                    matched.append({
-                        "title": job.get("title"),
-                        "company": job.get("companyName"),
-                        "url": job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}",
-                        "source": "Himalayas"
-                    })
-    except Exception as e:
-        print(f"Himalayas Error: {e}")
+        log(f"Remotive fetch error: {e}")
     return matched
 
 
 def fetch_and_notify():
-    # Diagnostic Secret Verification
+    log("=== STARTING JOB FETCH ===")
+    
+    # 1. Check if Secrets are loaded
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secrets are missing or not passed correctly!")
-        print(f"TOKEN Present: {bool(TELEGRAM_BOT_TOKEN)} | CHAT_ID Present: {bool(TELEGRAM_CHAT_ID)}")
+        log("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secrets are missing in GitHub settings!")
+        log(f"TOKEN Loaded: {bool(TELEGRAM_BOT_TOKEN)} | CHAT_ID Loaded: {bool(TELEGRAM_CHAT_ID)}")
         return
 
-    print("✅ Secrets found. Fetching jobs...")
+    log("✅ GitHub Secrets loaded successfully.")
 
+    # 2. Fetch jobs from APIs
     all_jobs = []
+    all_jobs.extend(fetch_himalayas_search())
     all_jobs.extend(fetch_remotive())
-    all_jobs.extend(fetch_himalayas())
 
-    print(f"\n--- Total Matches Found Across Active APIs: {len(all_jobs)} ---")
+    log(f"\n--- Total Matches Collected: {len(all_jobs)} ---")
 
     if not all_jobs:
-        print("No job matches found in current API query window.")
+        log("No jobs matched in this run.")
         return
 
-    # Send top 5 matching alerts
+    # 3. Send top 5 alerts to Telegram
     for job in all_jobs[:5]:
+        log(f"Sending alert for: {job['title']} from {job['source']}")
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
+
+    log("=== JOB FETCH COMPLETE ===")
 
 
 if __name__ == "__main__":
