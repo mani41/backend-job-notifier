@@ -26,85 +26,17 @@ def send_telegram_alert(job_title, company, job_url, source):
         "disable_web_page_preview": False,
     }
     try:
-        requests.post(telegram_url, json=payload, timeout=10)
-        print(f"[{source}] Alert sent: {job_title}")
+        res = requests.post(telegram_url, json=payload, timeout=10)
+        print(f"[{source}] Telegram delivery status: {res.status_code}")
+        if res.status_code != 200:
+            print(f"Telegram error details: {res.text}")
     except Exception as e:
         print(f"Failed to send alert for {job_title}: {e}")
 
 
-# --- 1. We Work Remotely (RSS Feed) ---
-def fetch_weworkremotely():
-    print("Checking We Work Remotely...")
-    feed_url = "https://weworkremotely.com/categories/remote-front-end-programming-jobs.rss"
-    matched = []
-    try:
-        feed = feedparser.parse(feed_url)
-        for entry in feed.entries:
-            title = entry.title.lower()
-            if any(kw in title for kw in KEYWORDS):
-                matched.append({
-                    "title": entry.title,
-                    "company": getattr(entry, "author", "WeWorkRemotely"),
-                    "url": entry.link,
-                    "source": "We Work Remotely"
-                })
-    except Exception as e:
-        print(f"WWR Error: {e}")
-    return matched
-
-
-# --- 2. Remote OK (JSON API) ---
-def fetch_remoteok():
-    print("Checking Remote OK...")
-    url = "https://remoteok.com/api"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    matched = []
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            for job in data[1:30]:  # Skip index 0 (legal header)
-                title = job.get("position", "").lower()
-                tags = [t.lower() for t in job.get("tags", [])]
-                if any(kw in title for kw in KEYWORDS) or any(kw in " ".join(tags) for kw in KEYWORDS):
-                    matched.append({
-                        "title": job.get("position"),
-                        "company": job.get("company"),
-                        "url": job.get("url"),
-                        "source": "Remote OK"
-                    })
-    except Exception as e:
-        print(f"RemoteOK Error: {e}")
-    return matched
-
-
-# --- 3. Himalayas (JSON API) ---
-def fetch_himalayas():
-    print("Checking Himalayas...")
-    url = "https://himalayas.app/jobs/api?limit=30"
-    matched = []
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            jobs = res.json().get("jobs", [])
-            for job in jobs:
-                title = job.get("title", "").lower()
-                if any(kw in title for kw in KEYWORDS):
-                    matched.append({
-                        "title": job.get("title"),
-                        "company": job.get("companyName"),
-                        "url": job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}",
-                        "source": "Himalayas"
-                    })
-    except Exception as e:
-        print(f"Himalayas Error: {e}")
-    return matched
-
-
-# --- 4. Remotive (JSON API) ---
 def fetch_remotive():
     print("Checking Remotive...")
-    url = "https://remotive.com/api/remote-jobs?category=software-dev&limit=30"
+    url = "https://remotive.com/api/remote-jobs?category=software-dev&limit=50"
     matched = []
     try:
         res = requests.get(url, timeout=10)
@@ -124,90 +56,48 @@ def fetch_remotive():
     return matched
 
 
-# --- 5. Arbeitnow (JSON API) ---
-def fetch_arbeitnow():
-    print("Checking Arbeitnow...")
-    url = "https://www.arbeitnow.com/api/job-board-api"
-    matched = []
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            jobs = res.json().get("data", [])
-            for job in jobs:
-                title = job.get("title", "").lower()
-                if any(kw in title for kw in KEYWORDS):
-                    matched.append({
-                        "title": job.get("title"),
-                        "company": job.get("company_name"),
-                        "url": job.get("url"),
-                        "source": "Arbeitnow"
-                    })
-    except Exception as e:
-        print(f"Arbeitnow Error: {e}")
-    return matched
-
-
-# --- 6. Jobicy (JSON API) ---
-def fetch_jobicy():
-    print("Checking Jobicy...")
-    url = "https://jobicy.com/api/v2/remote-jobs?count=20&industry=engineering"
+def fetch_himalayas():
+    print("Checking Himalayas...")
+    url = "https://himalayas.app/jobs/api?limit=50"
     matched = []
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
             jobs = res.json().get("jobs", [])
             for job in jobs:
-                title = job.get("jobTitle", "").lower()
+                title = job.get("title", "").lower()
                 if any(kw in title for kw in KEYWORDS):
                     matched.append({
-                        "title": job.get("jobTitle"),
+                        "title": job.get("title"),
                         "company": job.get("companyName"),
-                        "url": job.get("url"),
-                        "source": "Jobicy"
+                        "url": job.get("applicationUrl") or f"https://himalayas.app/jobs/{job.get('slug')}",
+                        "source": "Himalayas"
                     })
     except Exception as e:
-        print(f"Jobicy Error: {e}")
-    return matched
-
-
-# --- 7. JustRemote (RSS Feed) ---
-def fetch_justremote():
-    print("Checking JustRemote...")
-    feed_url = "https://justremote.co/remote-developer-jobs.rss"
-    matched = []
-    try:
-        feed = feedparser.parse(feed_url)
-        for entry in feed.entries:
-            title = entry.title.lower()
-            if any(kw in title for kw in KEYWORDS):
-                matched.append({
-                    "title": entry.title,
-                    "company": "JustRemote",
-                    "url": entry.link,
-                    "source": "JustRemote"
-                })
-    except Exception as e:
-        print(f"JustRemote Error: {e}")
+        print(f"Himalayas Error: {e}")
     return matched
 
 
 def fetch_and_notify():
+    # Diagnostic Secret Verification
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("CRITICAL ERROR: Secrets TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing.")
+        print("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secrets are missing or not passed correctly!")
+        print(f"TOKEN Present: {bool(TELEGRAM_BOT_TOKEN)} | CHAT_ID Present: {bool(TELEGRAM_CHAT_ID)}")
         return
 
+    print("✅ Secrets found. Fetching jobs...")
+
     all_jobs = []
-    all_jobs.extend(fetch_weworkremotely())
-    all_jobs.extend(fetch_remoteok())
-    all_jobs.extend(fetch_himalayas())
     all_jobs.extend(fetch_remotive())
-    all_jobs.extend(fetch_arbeitnow())
-    all_jobs.extend(fetch_jobicy())
-    all_jobs.extend(fetch_justremote())
+    all_jobs.extend(fetch_himalayas())
 
-    print(f"\n--- Total Matches Across Sources: {len(all_jobs)} ---")
+    print(f"\n--- Total Matches Found Across Active APIs: {len(all_jobs)} ---")
 
-    # Send up to 5 matching alerts per run
+    if not all_jobs:
+        print("No job matches found in current API query window.")
+        return
+
+    # Send top 5 matching alerts
     for job in all_jobs[:5]:
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
 
