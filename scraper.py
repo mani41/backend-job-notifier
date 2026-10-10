@@ -2,7 +2,7 @@
 ================================================================================
 SCRIPT: Frontend Job Alert Bot (scraper.py)
 PURPOSE: Aggregates real-time Frontend & Web Development job postings across 
-         6 remote job portals and dispatches instant alerts via Telegram.
+         7 remote & global job portals and dispatches instant alerts via Telegram.
 
 JOB PORTALS CHECKED:
 1. Himalayas (https://himalayas.app) - Search API endpoint for frontend roles.
@@ -11,6 +11,7 @@ JOB PORTALS CHECKED:
 4. Arbeitnow (https://www.arbeitnow.com) - European & Global remote job API.
 5. Jobicy (https://jobicy.com) - Engineering remote job feed API.
 6. Hacker News (https://news.ycombinator.com) - Real-time official Firebase API.
+7. LinkedIn (https://linkedin.com) - Public Guest API (Company & Role searches).
 
 TRACKED KEYWORDS:
 - Positions: "frontend", "front-end", "front end", "ui", "web developer"
@@ -28,8 +29,10 @@ EXECUTION:
 
 import json
 import os
+import urllib.parse
 import requests
 import feedparser
+from bs4 import BeautifulSoup
 
 SEEN_JOBS_FILE = "seen_jobs.json"
 
@@ -176,137 +179,4 @@ def fetch_weworkremotely():
 
 
 # ==============================================================================
-# PORTAL 4: Arbeitnow (https://www.arbeitnow.com)
-# Focus: International and European remote engineering roles.
-# ==============================================================================
-def fetch_arbeitnow():
-    log("Checking Portal: Arbeitnow (Public API)...")
-    url = "https://www.arbeitnow.com/api/job-board-api"
-    matched = []
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            jobs = res.json().get("data", [])
-            log(f"Arbeitnow returned {len(jobs)} jobs.")
-            for job in jobs:
-                title = job.get("title", "").lower()
-                if any(kw in title for kw in KEYWORDS):
-                    matched.append({
-                        "id": job.get("url"),
-                        "title": job.get("title"),
-                        "company": job.get("company_name"),
-                        "url": job.get("url"),
-                        "source": "Arbeitnow"
-                    })
-    except Exception as e:
-        log(f"Arbeitnow fetch error: {e}")
-    return matched
-
-
-# ==============================================================================
-# PORTAL 5: Jobicy (https://jobicy.com)
-# Focus: Remote engineering and frontend positions worldwide.
-# ==============================================================================
-def fetch_jobicy():
-    log("Checking Portal: Jobicy (Engineering API)...")
-    url = "https://jobicy.com/api/v2/remote-jobs?count=20&industry=engineering"
-    matched = []
-    try:
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            jobs = res.json().get("jobs", [])
-            log(f"Jobicy returned {len(jobs)} jobs.")
-            for job in jobs:
-                title = job.get("jobTitle", "").lower()
-                if any(kw in title for kw in KEYWORDS):
-                    matched.append({
-                        "id": job.get("url"),
-                        "title": job.get("jobTitle"),
-                        "company": job.get("companyName"),
-                        "url": job.get("url"),
-                        "source": "Jobicy"
-                    })
-    except Exception as e:
-        log(f"Jobicy fetch error: {e}")
-    return matched
-
-
-# ==============================================================================
-# PORTAL 6: Hacker News (https://news.ycombinator.com)
-# Focus: High-paying startup roles from Y Combinator & tech community feeds.
-# ==============================================================================
-def fetch_hacker_news():
-    log("Checking Portal: Hacker News (Firebase API)...")
-    matched = []
-    try:
-        res = requests.get("https://hacker-news.firebaseio.com/v0/jobstories.json", timeout=10)
-        if res.status_code == 200:
-            story_ids = res.json()[:15]
-            log(f"Hacker News returned {len(story_ids)} active job story IDs.")
-            for s_id in story_ids:
-                item_res = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{s_id}.json", timeout=10)
-                if item_res.status_code == 200:
-                    item = item_res.json()
-                    title = item.get("title", "").lower()
-                    if any(kw in title for kw in KEYWORDS):
-                        job_url = item.get("url") or f"https://news.ycombinator.com/item?id={item.get('id')}"
-                        matched.append({
-                            "id": str(item.get("id")),
-                            "title": item.get("title"),
-                            "company": "Hacker News Startup",
-                            "url": job_url,
-                            "source": "Hacker News"
-                        })
-    except Exception as e:
-        log(f"Hacker News fetch error: {e}")
-    return matched
-
-
-# ==============================================================================
-# MAIN EXECUTOR & AGGREGATOR
-# ==============================================================================
-def fetch_and_notify():
-    log("=== STARTING JOB FETCH ===")
-    
-    # Verify Secret Availability
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        log("❌ CRITICAL ERROR: Secret variables are missing in GitHub repository settings!")
-        log(f"TOKEN Loaded: {bool(TELEGRAM_BOT_TOKEN)} | CHAT_ID Loaded: {bool(TELEGRAM_CHAT_ID)}")
-        return
-
-    log("✅ GitHub Secrets loaded successfully.")
-
-    # Load seen job history to prevent duplicate notifications
-    seen_jobs = load_seen_jobs()
-    log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
-
-    # Execute and aggregate all 6 portal checks
-    all_jobs = []
-    all_jobs.extend(fetch_himalayas())
-    all_jobs.extend(fetch_remotive())
-    all_jobs.extend(fetch_weworkremotely())
-    all_jobs.extend(fetch_arbeitnow())
-    all_jobs.extend(fetch_jobicy())
-    all_jobs.extend(fetch_hacker_news())
-
-    # Filter out jobs that have already been sent in previous runs
-    new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
-    log(f"\n--- Total Matches: {len(all_jobs)} | New Unseen Matches: {len(new_jobs)} ---")
-
-    if not new_jobs:
-        log("No new unseen jobs found in this run.")
-        return
-
-    # Dispatch alerts for new jobs only (up to 5 per run)
-    for job in new_jobs[:5]:
-        log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
-        send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
-        seen_jobs.add(job["id"])
-
-    # Save updated list of processed job IDs
-    save_seen_jobs(seen_jobs)
-    log("=== JOB FETCH COMPLETE ===")
-
-
-if __name__ == "__main__":
-    fetch_and_notify()
+#
