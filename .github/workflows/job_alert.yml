@@ -3,7 +3,7 @@ name: Frontend Job Telegram Alert
 on:
   schedule:
     # Runs hourly between 9:00 AM and 9:00 PM IST (3:30 AM to 3:30 PM UTC)
-    - cron: '0 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:        # Keeps manual execution button available anytime
 
 permissions:
