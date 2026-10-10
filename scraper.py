@@ -11,7 +11,7 @@ JOB PORTALS CHECKED:
 4. Arbeitnow (https://www.arbeitnow.com) - European & Global remote job API.
 5. Jobicy (https://jobicy.com) - Engineering remote job feed API.
 6. Hacker News (https://news.ycombinator.com) - Real-time official Firebase API.
-7. LinkedIn (https://linkedin.com) - Public Guest API (Company & Role searches).
+7. LinkedIn (https://linkedin.com) - Public Guest API (Bengaluru & Remote roles).
 
 TRACKED KEYWORDS:
 - Positions: "frontend", "front-end", "front end", "ui", "web developer"
@@ -179,4 +179,196 @@ def fetch_weworkremotely():
 
 
 # ==============================================================================
-#
+# PORTAL 4: Arbeitnow (https://www.arbeitnow.com)
+# Focus: International and European remote engineering roles.
+# ==============================================================================
+def fetch_arbeitnow():
+    log("Checking Portal: Arbeitnow (Public API)...")
+    url = "https://www.arbeitnow.com/api/job-board-api"
+    matched = []
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            jobs = res.json().get("data", [])
+            log(f"Arbeitnow returned {len(jobs)} jobs.")
+            for job in jobs:
+                title = job.get("title", "").lower()
+                if any(kw in title for kw in KEYWORDS):
+                    matched.append({
+                        "id": job.get("url"),
+                        "title": job.get("title"),
+                        "company": job.get("company_name"),
+                        "url": job.get("url"),
+                        "source": "Arbeitnow"
+                    })
+    except Exception as e:
+        log(f"Arbeitnow fetch error: {e}")
+    return matched
+
+
+# ==============================================================================
+# PORTAL 5: Jobicy (https://jobicy.com)
+# Focus: Remote engineering and frontend positions worldwide.
+# ==============================================================================
+def fetch_jobicy():
+    log("Checking Portal: Jobicy (Engineering API)...")
+    url = "https://jobicy.com/api/v2/remote-jobs?count=20&industry=engineering"
+    matched = []
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            jobs = res.json().get("jobs", [])
+            log(f"Jobicy returned {len(jobs)} jobs.")
+            for job in jobs:
+                title = job.get("jobTitle", "").lower()
+                if any(kw in title for kw in KEYWORDS):
+                    matched.append({
+                        "id": job.get("url"),
+                        "title": job.get("jobTitle"),
+                        "company": job.get("companyName"),
+                        "url": job.get("url"),
+                        "source": "Jobicy"
+                    })
+    except Exception as e:
+        log(f"Jobicy fetch error: {e}")
+    return matched
+
+
+# ==============================================================================
+# PORTAL 6: Hacker News (https://news.ycombinator.com)
+# Focus: High-paying startup roles from Y Combinator & tech community feeds.
+# ==============================================================================
+def fetch_hacker_news():
+    log("Checking Portal: Hacker News (Firebase API)...")
+    matched = []
+    try:
+        res = requests.get("https://hacker-news.firebaseio.com/v0/jobstories.json", timeout=10)
+        if res.status_code == 200:
+            story_ids = res.json()[:15]
+            log(f"Hacker News returned {len(story_ids)} active job story IDs.")
+            for s_id in story_ids:
+                item_res = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{s_id}.json", timeout=10)
+                if item_res.status_code == 200:
+                    item = item_res.json()
+                    title = item.get("title", "").lower()
+                    if any(kw in title for kw in KEYWORDS):
+                        job_url = item.get("url") or f"https://news.ycombinator.com/item?id={item.get('id')}"
+                        matched.append({
+                            "id": str(item.get("id")),
+                            "title": item.get("title"),
+                            "company": "Hacker News Startup",
+                            "url": job_url,
+                            "source": "Hacker News"
+                        })
+    except Exception as e:
+        log(f"Hacker News fetch error: {e}")
+    return matched
+
+
+# ==============================================================================
+# PORTAL 7: LinkedIn Guest Search API (https://linkedin.com)
+# Focus: Targeted company & role searches without requiring authentication.
+# ==============================================================================
+def fetch_linkedin(search_query="Frontend", location="Bengaluru", workplace_type=None):
+    log(f"Checking Portal: LinkedIn Guest API ('{search_query}' in '{location}')...")
+    encoded_query = urllib.parse.quote(search_query)
+    encoded_loc = urllib.parse.quote(location)
+    
+    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={encoded_query}&location={encoded_loc}&start=0"
+    
+    if workplace_type:
+        url += f"&f_WT={workplace_type}"
+        
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    matched = []
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        log(f"LinkedIn HTTP Status: {res.status_code}")
+        
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "html.parser")
+            job_cards = soup.find_all("li")
+            log(f"LinkedIn returned {len(job_cards)} job cards for '{search_query}'.")
+            
+            for card in job_cards:
+                title_elem = card.find("h3", class_="base-search-card__title")
+                company_elem = card.find("h4", class_="base-search-card__subtitle")
+                link_elem = card.find("a", class_="base-card__full-link")
+                
+                if title_elem and link_elem:
+                    title = title_elem.text.strip()
+                    company = company_elem.text.strip() if company_elem else "LinkedIn Listing"
+                    job_url = link_elem["href"].split("?")[0]  # Clean tracking parameters
+                    
+                    title_lower = title.lower()
+                    if any(kw in title_lower for kw in KEYWORDS) or "wabtec" in search_query.lower():
+                        matched.append({
+                            "id": job_url,
+                            "title": title,
+                            "company": company,
+                            "url": job_url,
+                            "source": "LinkedIn"
+                        })
+    except Exception as e:
+        log(f"LinkedIn fetch error for '{search_query}': {e}")
+        
+    return matched
+
+
+# ==============================================================================
+# MAIN EXECUTOR & AGGREGATOR
+# ==============================================================================
+def fetch_and_notify():
+    log("=== STARTING JOB FETCH ===")
+    
+    # Verify Secret Availability
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        log("❌ CRITICAL ERROR: Secret variables are missing in GitHub repository settings!")
+        log(f"TOKEN Loaded: {bool(TELEGRAM_BOT_TOKEN)} | CHAT_ID Loaded: {bool(TELEGRAM_CHAT_ID)}")
+        return
+
+    log("✅ GitHub Secrets loaded successfully.")
+
+    # Load seen job history to prevent duplicate notifications
+    seen_jobs = load_seen_jobs()
+    log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
+
+    # Execute and aggregate all 7 portal checks
+    all_jobs = []
+    all_jobs.extend(fetch_himalayas())
+    all_jobs.extend(fetch_remotive())
+    all_jobs.extend(fetch_weworkremotely())
+    all_jobs.extend(fetch_arbeitnow())
+    all_jobs.extend(fetch_jobicy())
+    all_jobs.extend(fetch_hacker_news())
+    
+    # LinkedIn Custom Targeted Searches (Bengaluru & Remote)
+    all_jobs.extend(fetch_linkedin(search_query="Frontend Wabtec", location="Bengaluru"))
+    all_jobs.extend(fetch_linkedin(search_query="Senior Frontend Developer", location="Bengaluru"))
+    all_jobs.extend(fetch_linkedin(search_query="Angular Developer", location="Bengaluru"))
+    all_jobs.extend(fetch_linkedin(search_query="Lead Frontend Engineer", location="Remote"))
+
+    # Filter out jobs that have already been sent in previous runs
+    new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
+    log(f"\n--- Total Matches: {len(all_jobs)} | New Unseen Matches: {len(new_jobs)} ---")
+
+    if not new_jobs:
+        log("No new unseen jobs found in this run.")
+        return
+
+    # Dispatch alerts for new jobs only (up to 5 per run)
+    for job in new_jobs[:5]:
+        log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
+        send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
+        seen_jobs.add(job["id"])
+
+    # Save updated list of processed job IDs
+    save_seen_jobs(seen_jobs)
+    log("=== JOB FETCH COMPLETE ===")
+
+
+if __name__ == "__main__":
+    fetch_and_notify()
