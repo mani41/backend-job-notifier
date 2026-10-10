@@ -1,11 +1,12 @@
 """
 ================================================================================
-SCRIPT: Frontend Job Alert Bot (scraper.py)
-PURPOSE: Aggregates real-time Frontend & Web Development job postings across 
-         7 remote & global job portals and dispatches instant alerts via Telegram.
+SCRIPT: Frontend & Full Stack Job Alert Bot (scraper.py)
+PURPOSE: Aggregates real-time Frontend, Angular, and Full Stack job postings 
+         across 7 remote & global job portals and dispatches instant alerts 
+         via Telegram.
 
 JOB PORTALS CHECKED:
-1. Himalayas (https://himalayas.app) - Search API endpoint for frontend roles.
+1. Himalayas (https://himalayas.app) - Search API endpoint for tech roles.
 2. Remotive (https://remotive.com) - Software development API category.
 3. We Work Remotely (https://weworkremotely.com) - Front-End RSS feed.
 4. Arbeitnow (https://www.arbeitnow.com) - European & Global remote job API.
@@ -14,7 +15,8 @@ JOB PORTALS CHECKED:
 7. LinkedIn (https://linkedin.com) - Public Guest API (Bengaluru & Remote roles).
 
 TRACKED KEYWORDS:
-- Positions: "frontend", "front-end", "front end", "ui", "web developer"
+- Positions: "frontend", "front-end", "front end", "ui", "web developer",
+             "fullstack", "full-stack", "full stack"
 - Technologies: "angular", "react", "vue", "typescript", "javascript"
 
 STATE MANAGEMENT:
@@ -36,10 +38,11 @@ from bs4 import BeautifulSoup
 
 SEEN_JOBS_FILE = "seen_jobs.json"
 
-# Keywords to match relevant Frontend & Web Development roles
+# Keywords to match relevant Frontend & Full Stack roles
 KEYWORDS = [
     "frontend", "front-end", "front end", "ui",
-    "angular", "react", "vue", "typescript", "javascript", "web developer"
+    "angular", "react", "vue", "typescript", "javascript", "web developer",
+    "fullstack", "full-stack", "full stack"
 ]
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -126,7 +129,7 @@ def fetch_himalayas():
 
 # ==============================================================================
 # PORTAL 2: Remotive (https://remotive.com)
-# Focus: Curated global remote software development positions.
+# Focus: Curated global software development positions.
 # ==============================================================================
 def fetch_remotive():
     log("Checking Portal: Remotive (Software Dev API)...")
@@ -154,7 +157,7 @@ def fetch_remotive():
 
 # ==============================================================================
 # PORTAL 3: We Work Remotely (https://weworkremotely.com)
-# Focus: One of the largest remote-only job boards in tech & engineering.
+# Focus: One of the largest tech & engineering remote job feeds.
 # ==============================================================================
 def fetch_weworkremotely():
     log("Checking Portal: We Work Remotely (RSS Feed)...")
@@ -180,7 +183,7 @@ def fetch_weworkremotely():
 
 # ==============================================================================
 # PORTAL 4: Arbeitnow (https://www.arbeitnow.com)
-# Focus: International and European remote engineering roles.
+# Focus: International engineering roles.
 # ==============================================================================
 def fetch_arbeitnow():
     log("Checking Portal: Arbeitnow (Public API)...")
@@ -208,7 +211,7 @@ def fetch_arbeitnow():
 
 # ==============================================================================
 # PORTAL 5: Jobicy (https://jobicy.com)
-# Focus: Remote engineering and frontend positions worldwide.
+# Focus: Engineering positions worldwide.
 # ==============================================================================
 def fetch_jobicy():
     log("Checking Portal: Jobicy (Engineering API)...")
@@ -267,7 +270,7 @@ def fetch_hacker_news():
 
 # ==============================================================================
 # PORTAL 7: LinkedIn Guest Search API (https://linkedin.com)
-# Focus: Targeted company & role searches without requiring authentication.
+# Focus: Bengaluru & Remote role searches without requiring authentication.
 # ==============================================================================
 def fetch_linkedin(search_query="Frontend", location="Bengaluru", workplace_type=None):
     log(f"Checking Portal: LinkedIn Guest API ('{search_query}' in '{location}')...")
@@ -291,7 +294,7 @@ def fetch_linkedin(search_query="Frontend", location="Bengaluru", workplace_type
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, "html.parser")
             job_cards = soup.find_all("li")
-            log(f"LinkedIn returned {len(job_cards)} job cards for '{search_query}'.")
+            log(f"LinkedIn returned {len(job_cards)} job cards for '{search_query}' in '{location}'.")
             
             for card in job_cards:
                 title_elem = card.find("h3", class_="base-search-card__title")
@@ -304,16 +307,16 @@ def fetch_linkedin(search_query="Frontend", location="Bengaluru", workplace_type
                     job_url = link_elem["href"].split("?")[0]  # Clean tracking parameters
                     
                     title_lower = title.lower()
-                    if any(kw in title_lower for kw in KEYWORDS) or "wabtec" in search_query.lower():
+                    if any(kw in title_lower for kw in KEYWORDS):
                         matched.append({
                             "id": job_url,
                             "title": title,
                             "company": company,
                             "url": job_url,
-                            "source": "LinkedIn"
+                            "source": f"LinkedIn ({location})"
                         })
     except Exception as e:
-        log(f"LinkedIn fetch error for '{search_query}': {e}")
+        log(f"LinkedIn fetch error for '{search_query}' in '{location}': {e}")
         
     return matched
 
@@ -336,7 +339,7 @@ def fetch_and_notify():
     seen_jobs = load_seen_jobs()
     log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
 
-    # Execute and aggregate all 7 portal checks
+    # Execute and aggregate all portal checks
     all_jobs = []
     all_jobs.extend(fetch_himalayas())
     all_jobs.extend(fetch_remotive())
@@ -345,11 +348,19 @@ def fetch_and_notify():
     all_jobs.extend(fetch_jobicy())
     all_jobs.extend(fetch_hacker_news())
     
-    # LinkedIn Custom Targeted Searches (Bengaluru & Remote)
-    all_jobs.extend(fetch_linkedin(search_query="Frontend Wabtec", location="Bengaluru"))
-    all_jobs.extend(fetch_linkedin(search_query="Senior Frontend Developer", location="Bengaluru"))
-    all_jobs.extend(fetch_linkedin(search_query="Angular Developer", location="Bengaluru"))
-    all_jobs.extend(fetch_linkedin(search_query="Lead Frontend Engineer", location="Remote"))
+    # LinkedIn Targeted Searches (Bengaluru & Remote)
+    target_locations = ["Bengaluru", "Remote"]
+    target_queries = [
+        "Senior Frontend Developer",
+        "Angular Developer",
+        "Lead Frontend Engineer",
+        "Full Stack Developer",
+        "Full Stack Engineer"
+    ]
+
+    for loc in target_locations:
+        for query in target_queries:
+            all_jobs.extend(fetch_linkedin(search_query=query, location=loc))
 
     # Filter out jobs that have already been sent in previous runs
     new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
@@ -359,8 +370,8 @@ def fetch_and_notify():
         log("No new unseen jobs found in this run.")
         return
 
-    # Dispatch alerts for new jobs only (up to 15 per run)
-    for job in new_jobs[:15]:
+    # Dispatch alerts for new jobs only (up to 5 per run)
+    for job in new_jobs[:5]:
         log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
         seen_jobs.add(job["id"])
