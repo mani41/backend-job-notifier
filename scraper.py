@@ -359,8 +359,8 @@ def fetch_and_notify():
         log("No new unseen jobs found in this run.")
         return
 
-    # Dispatch alerts for new jobs only (up to 5 per run)
-    for job in new_jobs[:5]:
+    # Dispatch alerts for new jobs only (up to 15 per run)
+    for job in new_jobs[:15]:
         log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
         seen_jobs.add(job["id"])
