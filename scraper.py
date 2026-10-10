@@ -344,7 +344,7 @@ def fetch_and_notify():
     all_jobs.extend(fetch_himalayas())
     all_jobs.extend(fetch_remotive())
     all_jobs.extend(fetch_weworkremotely())
-    all_jobs.extend(fetch_arbeitnow())
+    # all_jobs.extend(fetch_arbeitnow())
     all_jobs.extend(fetch_jobicy())
     all_jobs.extend(fetch_hacker_news())
     
