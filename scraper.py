@@ -513,12 +513,13 @@ def fetch_and_notify():
     log(f"Loaded {len(seen_jobs)} previously notified job IDs.")
 
     all_jobs = []
-    all_jobs.extend(fetch_himalayas())
-    all_jobs.extend(fetch_remotive())
-    all_jobs.extend(fetch_weworkremotely())
+    #all_jobs.extend(fetch_himalayas())
+    #all_jobs.extend(fetch_remotive())
+    #all_jobs.extend(fetch_weworkremotely())
     # all_jobs.extend(fetch_arbeitnow())
-    all_jobs.extend(fetch_jobicy())
-    all_jobs.extend(fetch_hacker_news())
+    #all_jobs.extend(fetch_jobicy())
+    #all_jobs.extend(fetch_hacker_news())
+    all_jobs.extend(fetch_greenhouse())
     
     # LinkedIn Targeted Searches (Bengaluru & Remote)
     target_locations = ["Bengaluru", "Remote"]
@@ -537,7 +538,7 @@ def fetch_and_notify():
 
     # Filter out jobs that have already been sent in previous runs
     new_jobs = [j for j in all_jobs if j["id"] not in seen_jobs]
-    log(f"\n--- Total Matches (<7 Days Old): {len(all_jobs)} | New Unseen Matches: {len(new_jobs)} ---")
+    log(f"\n--- Total Matches (<2 Days Old): {len(all_jobs)} | New Unseen Matches: {len(new_jobs)} ---")
 
     if not new_jobs:
         log("No new unseen jobs found in this run.")
