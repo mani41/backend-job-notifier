@@ -12,7 +12,7 @@ JOB PORTALS CHECKED:
 5. Jobicy (https://jobicy.com) - Engineering remote job feed API.
 6. Hacker News (https://news.ycombinator.com) - Real-time official Firebase API.
 7. LinkedIn (https://linkedin.com) - Public Guest API (Bengaluru & Remote roles).
-
+8. GREENHOUSE_SEARCH_URL = "https://my.greenhouse.io/jobs/search"
 FILTERS & STATE MANAGEMENT:
 - Age Limit: Only notifies jobs posted within the last 7 days (CUTOFF_DAYS = 7).
 - Duplicate Prevention: Tracks processed job URLs inside 'seen_jobs.json'.
@@ -47,6 +47,16 @@ KEYWORDS = [
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+GREENHOUSE_SEARCH_PARAMS = {
+    "country_short_name": "IN",
+    "employment_type[]": "full_time",
+    "lat": "22.687581",
+    "location": "India",
+    "location_type": "country",
+    "lon": "79.370366",
+    "query": "Software",
+}
 
 
 def log(msg):
@@ -349,6 +359,142 @@ def fetch_linkedin(search_query="Frontend", location="Bengaluru"):
         log(f"LinkedIn fetch error for '{search_query}' in '{location}': {e}")
         
     return matched
+
+
+# ==============================================================================
+# PORTAL 8: MyGreenhouse (https://my.greenhouse.io)
+# ==============================================================================
+
+def fetch_greenhouse():
+    """
+    Fetch India-based, full-time Software jobs from MyGreenhouse.
+
+    Uses the public search URL and supports an optional session cookie.
+    Returns jobs in the same format as the other portal scrapers.
+    """
+    log("Checking Portal: MyGreenhouse (India Software Jobs)...")
+
+    matched = []
+    seen_urls = set()
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml",
+    }
+
+    # Optional: set MY_GREENHOUSE_COOKIE as a GitHub Actions secret
+    # if the search results require an authenticated session.
+    cookie = os.environ.get("MY_GREENHOUSE_COOKIE")
+    if cookie:
+        headers["Cookie"] = cookie
+
+    try:
+        response = requests.get(
+            GREENHOUSE_SEARCH_URL,
+            params=GREENHOUSE_SEARCH_PARAMS,
+            headers=headers,
+            timeout=20,
+            allow_redirects=True,
+        )
+
+        log(f"MyGreenhouse HTTP Status: {response.status_code}")
+        log(f"MyGreenhouse Final URL: {response.url}")
+
+        response.raise_for_status()
+
+        # Do not mistake a sign-in page for an empty job search.
+        if "/users/sign_in" in response.url:
+            log(
+                "MyGreenhouse requires authentication. "
+                "No jobs scraped; configure a valid session "
+                "or investigate an accessible search endpoint."
+            )
+            return matched
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Search semantic job links first, then use a fallback for
+        # cards whose HTML structure differs from standard job boards.
+        job_links = soup.select(
+            'a[href*="/jobs/"], '
+            'a[href*="/job/"], '
+            'a[href*="greenhouse.io/"]'
+        )
+
+        for link in job_links:
+            title = link.get_text(" ", strip=True)
+
+            if not title or len(title) > 250:
+                continue
+
+            # Search results can wrap the same link multiple times.
+            parent = link
+            for _ in range(3):
+                if parent.parent:
+                    parent = parent.parent
+
+            card_text = parent.get_text(" ", strip=True)
+            title_lower = title.lower()
+
+            # Avoid navigation links and unrelated Greenhouse links.
+            if not any(keyword.lower() in title_lower
+                       for keyword in KEYWORDS):
+                continue
+
+            href = link.get("href", "").strip()
+            if not href:
+                continue
+
+            job_url = urllib.parse.urljoin(response.url, href)
+            job_url = job_url.split("#")[0]
+
+            if job_url in seen_urls:
+                continue
+
+            # Prefer a company name explicitly identified by the card.
+            company_elem = (
+                parent.select_one(
+                    '[class*="company"], '
+                    '[data-testid*="company"]'
+                )
+            )
+            company = (
+                company_elem.get_text(" ", strip=True)
+                if company_elem else "Greenhouse Employer"
+            )
+
+            # Look for a publication date when available.
+            date_elem = parent.find("time")
+            pub_date = (
+                date_elem.get("datetime")
+                if date_elem else None
+            )
+
+            if not is_within_last_days(pub_date):
+                continue
+
+            seen_urls.add(job_url)
+            matched.append({
+                "id": job_url,
+                "title": title,
+                "company": company,
+                "url": job_url,
+                "source": "MyGreenhouse",
+            })
+
+        log(f"MyGreenhouse matching jobs found: {len(matched)}")
+
+    except requests.RequestException as exc:
+        log(f"MyGreenhouse request error: {exc}")
+    except Exception as exc:
+        log(f"MyGreenhouse scraper error: {exc}")
+
+    return matched
+
 
 
 # ==============================================================================
