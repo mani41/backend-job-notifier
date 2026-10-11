@@ -1,4 +1,4 @@
-name: Frontend Job Telegram Alert
+name: Backend Job Telegram Alert
 
 on:
   schedule:
