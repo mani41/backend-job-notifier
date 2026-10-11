@@ -57,6 +57,7 @@ GREENHOUSE_SEARCH_PARAMS = {
     "lon": "79.370366",
     "query": "Software",
 }
+GREENHOUSE_SEARCH_URL = "https://my.greenhouse.io/jobs/search"
 
 
 def log(msg):
