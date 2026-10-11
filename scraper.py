@@ -376,6 +376,100 @@ GREENHOUSE_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
 GREENHOUSE_SEARCH_URL = "https://my.greenhouse.io/jobs/search"
 
 
+def fetch_greenhouse_boards_from_search(search_payload):
+    """
+    search_payload: JSON response containing props.jobPosts.
+    Uses the actual urlToken supplied by MyGreenhouse.
+    """
+    log("Checking Portal: Greenhouse public Board API...")
+
+    matched = []
+    session = requests.Session()
+    seen_urls = set()
+
+    job_posts = (
+        search_payload.get("props", {}).get("jobPosts", [])
+    )
+
+    # Discover actual board tokens from the search results.
+    companies = {}
+    for post in job_posts:
+        token = post.get("urlToken")
+        company = post.get("companyName", "").strip()
+
+        if token and company:
+            companies[token] = company
+
+    log(f"Discovered {len(companies)} Greenhouse boards.")
+
+    for token, company in companies.items():
+        api_url = f"{GREENHOUSE_API_BASE}/{token}/jobs"
+
+        try:
+            response = session.get(
+                api_url,
+                params={"content": "true"},
+                timeout=15,
+            )
+
+            if response.status_code == 404:
+                log(f"Board not found: {company} ({token})")
+                continue
+
+            response.raise_for_status()
+            jobs = response.json().get("jobs", [])
+
+            for job in jobs:
+                title = job.get("title", "")
+                location = (
+                    job.get("location") or {}
+                ).get("name", "")
+
+                # Match relevant software/backend roles.
+                if not any(
+                    keyword.lower() in title.lower()
+                    for keyword in KEYWORDS
+                ):
+                    continue
+
+                # Keep Bengaluru roles and India-based remote roles.
+                loc = location.lower()
+                if not any(term in loc for term in (
+                    "bengaluru",
+                    "bangalore",
+                    "india",
+                )):
+                    continue
+
+                published = (
+                    job.get("first_published")
+                    or job.get("updated_at")
+                )
+
+                if not is_within_last_days(published, 5):
+                    continue
+
+                url = job.get("absolute_url")
+                if not url or url in seen_urls:
+                    continue
+
+                seen_urls.add(url)
+                matched.append({
+                    "id": url,
+                    "title": title,
+                    "company": company,
+                    "url": url,
+                    "source": "Greenhouse",
+                })
+
+        except (requests.RequestException, ValueError) as exc:
+            log(f"Board API error [{token}]: {exc}")
+
+    log(f"Greenhouse matching jobs found: {len(matched)}")
+    return matched
+
+
+
 def greenhouse_board_token(company_name):
     """Convert a company name into a candidate board token."""
     import re
