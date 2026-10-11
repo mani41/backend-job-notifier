@@ -373,6 +373,7 @@ GREENHOUSE_SEARCH_PARAMS = {
 }
 
 GREENHOUSE_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
+GREENHOUSE_SEARCH_URL = "https://my.greenhouse.io/jobs/search"
 
 
 def greenhouse_board_token(company_name):
