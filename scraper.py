@@ -38,8 +38,10 @@ CUTOFF_DAYS = 2  # Maximum job age in days
 
 # Keywords to match relevant Frontend & Full Stack roles
 KEYWORDS = [
-    "frontend", "front-end", "front end", "ui",
-    "angular", "react", "vue", "typescript", "javascript", "web developer",
+    "backend", "back-end", "back end",
+    "java", "springboot", "system design", "spring boot", "javascript", "cloud", "saas", "ai integration", "ai assisted development", "spec driven development",
+    "distributed system", "RAG", "LLM", "Langchain", "claude", "workflow", "agentic ai", "ai tool", "API Gateway", "Circuit Breaker", "Retry", "Dead Letter Queue (DLQ)", "Concurrency",
+"Databases", "PostgreSQL", "Spring Batch", "Microservices", "AWS",
     "fullstack", "full-stack", "full stack"
 ]
 
@@ -375,11 +377,12 @@ def fetch_and_notify():
     # LinkedIn Targeted Searches (Bengaluru & Remote)
     target_locations = ["Bengaluru", "Remote"]
     target_queries = [
-        "Senior Frontend Developer",
-        "Angular Developer",
-        "Lead Frontend Engineer",
+        "Senior Backend Developer",
+        "Lead Backend Engineer",
         "Full Stack Developer",
-        "Full Stack Engineer"
+        "Full Stack Engineer",
+        "Staff Backend Engineer",
+        "Technical Consultant"
     ]
 
     for loc in target_locations:
@@ -395,7 +398,7 @@ def fetch_and_notify():
         return
 
     # Dispatch alerts for new jobs only (up to 5 per run)
-    for job in new_jobs[:5]:
+    for job in new_jobs[:15]:
         log(f"Sending NEW alert for: '{job['title']}' from [{job['source']}]")
         send_telegram_alert(job["title"], job["company"], job["url"], job["source"])
         seen_jobs.add(job["id"])
