@@ -48,17 +48,6 @@ KEYWORDS = [
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-GREENHOUSE_SEARCH_PARAMS = {
-    "country_short_name": "IN",
-    "employment_type[]": "full_time",
-    "lat": "22.687581",
-    "location": "India",
-    "location_type": "country",
-    "lon": "79.370366",
-    "query": "Software",
-}
-GREENHOUSE_SEARCH_URL = "https://my.greenhouse.io/jobs/search"
-
 
 def log(msg):
     """Prints output immediately to stdout for real-time viewing in GitHub Actions logs."""
@@ -366,135 +355,205 @@ def fetch_linkedin(search_query="Frontend", location="Bengaluru"):
 # PORTAL 8: MyGreenhouse (https://my.greenhouse.io)
 # ==============================================================================
 
-def fetch_greenhouse():
-    """
-    Fetch India-based, full-time Software jobs from MyGreenhouse.
 
-    Uses the public search URL and supports an optional session cookie.
-    Returns jobs in the same format as the other portal scrapers.
-    """
-    log("Checking Portal: MyGreenhouse (India Software Jobs)...")
+# ==============================================================================
+# PORTAL 8: MyGreenhouse Search + Public Job Board API
+# ==============================================================================
+
+GREENHOUSE_SEARCH_PARAMS = {
+    "query": "Software",
+    "location": "Bengaluru, Karnataka, India",
+    "lat": "12.97194",
+    "lon": "77.59369",
+    "location_type": "locality",
+    "country_short_name": "IN",
+    "state_short_name": "KA",
+    "date_posted": "past_five_days",
+    "employment_type[]": "full_time",
+}
+
+GREENHOUSE_API_BASE = "https://boards-api.greenhouse.io/v1/boards"
+
+
+def greenhouse_board_token(company_name):
+    """Convert a company name into a candidate board token."""
+    import re
+    token = company_name.lower().strip()
+    token = re.sub(r"[^a-z0-9]+", "-", token)
+    return token.strip("-")
+
+
+def fetch_greenhouse():
+    log("Checking Portal: MyGreenhouse (Bengaluru)...")
 
     matched = []
-    seen_urls = set()
-
-    headers = {
+    session = requests.Session()
+    session.headers.update({
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/131.0.0.0 Safari/537.36"
         ),
-        "Accept": "text/html,application/xhtml+xml",
-    }
-
-    # Optional: set MY_GREENHOUSE_COOKIE as a GitHub Actions secret
-    # if the search results require an authenticated session.
-    cookie = os.environ.get("MY_GREENHOUSE_COOKIE")
-    if cookie:
-        headers["Cookie"] = cookie
+        "Accept": "text/html,application/json",
+    })
 
     try:
-        response = requests.get(
+        # Step 1: Request the filtered MyGreenhouse search page.
+        response = session.get(
             GREENHOUSE_SEARCH_URL,
             params=GREENHOUSE_SEARCH_PARAMS,
-            headers=headers,
             timeout=20,
-            allow_redirects=True,
         )
 
         log(f"MyGreenhouse HTTP Status: {response.status_code}")
         log(f"MyGreenhouse Final URL: {response.url}")
 
-        response.raise_for_status()
-
-        # Do not mistake a sign-in page for an empty job search.
         if "/users/sign_in" in response.url:
             log(
-                "MyGreenhouse requires authentication. "
-                "No jobs scraped; configure a valid session "
-                "or investigate an accessible search endpoint."
+                "MyGreenhouse search redirected to sign-in. "
+                "Cannot discover companies from this response. "
+                "Check for an accessible search endpoint or "
+                "provide an authenticated session."
             )
             return matched
 
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Search semantic job links first, then use a fallback for
-        # cards whose HTML structure differs from standard job boards.
-        job_links = soup.select(
-            'a[href*="/jobs/"], '
-            'a[href*="/job/"], '
-            'a[href*="greenhouse.io/"]'
-        )
+        # Step 2: Extract company names and candidate board tokens.
+        # These selectors must be adjusted if the live HTML uses
+        # a different structure.
+        companies = {}
 
-        for link in job_links:
-            title = link.get_text(" ", strip=True)
+        for card in soup.select(
+            '[data-testid*="job"], '
+            '[class*="job-card"], '
+            '[class*="JobCard"]'
+        ):
+            company_elem = card.select_one(
+                '[class*="company"], '
+                '[data-testid*="company"]'
+            )
 
-            if not title or len(title) > 250:
+            if not company_elem:
                 continue
 
-            # Search results can wrap the same link multiple times.
-            parent = link
-            for _ in range(3):
-                if parent.parent:
-                    parent = parent.parent
+            company = company_elem.get_text(" ", strip=True)
+            if company:
+                companies[company] = greenhouse_board_token(company)
 
-            card_text = parent.get_text(" ", strip=True)
-            title_lower = title.lower()
+        # Fallback: inspect structured JSON embedded in the page.
+        # This is useful only if the response actually contains it.
+        if not companies:
+            log(
+                "No company names found in search HTML. "
+                "Inspect the response for embedded JSON or "
+                "the actual search API used by the browser."
+            )
+            return matched
 
-            # Avoid navigation links and unrelated Greenhouse links.
-            if not any(keyword.lower() in title_lower
-                       for keyword in KEYWORDS):
-                continue
+        log(f"Discovered {len(companies)} company names.")
 
-            href = link.get("href", "").strip()
-            if not href:
-                continue
+        # Step 3: Fetch each candidate public job board.
+        for company, token in companies.items():
+            api_url = f"{GREENHOUSE_API_BASE}/{token}/jobs"
 
-            job_url = urllib.parse.urljoin(response.url, href)
-            job_url = job_url.split("#")[0]
-
-            if job_url in seen_urls:
-                continue
-
-            # Prefer a company name explicitly identified by the card.
-            company_elem = (
-                parent.select_one(
-                    '[class*="company"], '
-                    '[data-testid*="company"]'
+            try:
+                board_response = session.get(
+                    api_url,
+                    params={"content": "true"},
+                    timeout=15,
                 )
-            )
-            company = (
-                company_elem.get_text(" ", strip=True)
-                if company_elem else "Greenhouse Employer"
-            )
 
-            # Look for a publication date when available.
-            date_elem = parent.find("time")
-            pub_date = (
-                date_elem.get("datetime")
-                if date_elem else None
-            )
+                if board_response.status_code == 404:
+                    log(
+                        f"Board token not found for {company}: "
+                        f"{token}"
+                    )
+                    continue
 
-            if not is_within_last_days(pub_date):
-                continue
+                board_response.raise_for_status()
+                payload = board_response.json()
+                jobs = payload.get("jobs", [])
 
-            seen_urls.add(job_url)
-            matched.append({
-                "id": job_url,
-                "title": title,
-                "company": company,
-                "url": job_url,
-                "source": "MyGreenhouse",
-            })
+                # Use the board's own name when available.
+                board_name_response = session.get(
+                    f"{GREENHOUSE_API_BASE}/{token}",
+                    timeout=10,
+                )
 
-        log(f"MyGreenhouse matching jobs found: {len(matched)}")
+                board_company = company
+                if board_name_response.ok:
+                    board_company = (
+                        board_name_response.json().get("name")
+                        or company
+                    )
+
+                for job in jobs:
+                    title = job.get("title", "")
+                    location = (
+                        job.get("location") or {}
+                    ).get("name", "")
+
+                    description = BeautifulSoup(
+                        job.get("content", ""),
+                        "html.parser",
+                    ).get_text(" ", strip=True)
+
+                    searchable_text = (
+                        f"{title} {description}"
+                    ).lower()
+
+                    # Relevant engineering/software roles.
+                    if not any(
+                        keyword.lower() in searchable_text
+                        for keyword in KEYWORDS
+                    ):
+                        continue
+
+                    # Keep Bengaluru roles; optionally include
+                    # India-remote jobs if their location says so.
+                    location_lower = location.lower()
+                    if not any(term in location_lower for term in [
+                        "bengaluru",
+                        "bangalore",
+                        "india remote",
+                        "remote - india",
+                    ]):
+                        continue
+
+                    published = (
+                        job.get("first_published")
+                        or job.get("updated_at")
+                    )
+
+                    if not is_within_last_days(published, 5):
+                        continue
+
+                    job_url = job.get("absolute_url")
+                    if not job_url:
+                        continue
+
+                    matched.append({
+                        "id": job_url,
+                        "title": title,
+                        "company": board_company,
+                        "url": job_url,
+                        "source": "Greenhouse",
+                    })
+
+            except (requests.RequestException, ValueError) as exc:
+                log(
+                    f"Greenhouse board error "
+                    f"[{company}/{token}]: {exc}"
+                )
 
     except requests.RequestException as exc:
-        log(f"MyGreenhouse request error: {exc}")
-    except Exception as exc:
-        log(f"MyGreenhouse scraper error: {exc}")
+        log(f"MyGreenhouse search request failed: {exc}")
 
+    log(f"Greenhouse matching jobs found: {len(matched)}")
     return matched
+
 
 
 
