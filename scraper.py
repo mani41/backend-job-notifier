@@ -34,7 +34,7 @@ import requests
 from bs4 import BeautifulSoup
 
 SEEN_JOBS_FILE = "seen_jobs.json"
-CUTOFF_DAYS = 7  # Maximum job age in days
+CUTOFF_DAYS = 2  # Maximum job age in days
 
 # Keywords to match relevant Frontend & Full Stack roles
 KEYWORDS = [
